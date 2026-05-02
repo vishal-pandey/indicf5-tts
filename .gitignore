@@ -1,4 +1,6 @@
 *.wav
+*.ogg
+test_*
 __pycache__/
 *.pyc
 .env
