@@ -4,7 +4,7 @@
 # LAUNCHD ENVIRONMENT FIXES
 # ==========================================
 # 1. Explicitly set PATH so the daemon can find conda
-export PATH="/Users/vishal/miniconda3/bin:/Users/vishal/anaconda3/bin:/opt/homebrew/bin:/opt/homebrew/Caskroom/miniforge/base/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/Users/vishal/miniconda3/bin:/Users/vishal/anaconda3/bin:/opt/homebrew/bin:/opt/homebrew/Caskroom/miniforge/base/bin:/opt/homebrew/Caskroom/miniconda/base/bin:/opt/homebrew/Caskroom/miniconda/base/condabin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # 2. Explicitly set HOME so HuggingFace can find your login token
 export HOME="/Users/vishal"
@@ -24,6 +24,22 @@ echo "========================================="
 echo "  Indic TTS API Setup & Start"
 echo "  Engines: IndicF5 + Indic Parler TTS"
 echo "========================================="
+
+# ==========================================
+# Wait for network (LaunchDaemon may start before DNS is ready)
+# ==========================================
+echo "Waiting for network..."
+MAX_WAIT=60
+WAITED=0
+while ! host github.com > /dev/null 2>&1; do
+    sleep 2
+    WAITED=$((WAITED + 2))
+    if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+        echo "ERROR: Network not available after ${MAX_WAIT}s. Exiting."
+        exit 1
+    fi
+done
+echo "Network ready (waited ${WAITED}s)."
 
 # Check if conda is available
 if ! command -v conda &> /dev/null; then
@@ -49,12 +65,13 @@ fi
 conda activate "$ENV_NAME"
 echo "       Activated: $(python --version)"
 
-# Install dependencies
+# Install dependencies (skip git installs if already present)
 echo ""
 echo "[2/4] Installing dependencies..."
-pip install -q git+https://github.com/ai4bharat/IndicF5.git
-pip install -q git+https://github.com/huggingface/parler-tts.git
-pip install -q fastapi 'uvicorn[standard]' torchcodec
+
+python -c "import f5_tts" 2>/dev/null || pip install -q git+https://github.com/ai4bharat/IndicF5.git
+python -c "import parler_tts" 2>/dev/null || pip install -q git+https://github.com/huggingface/parler-tts.git
+pip install -q fastapi 'uvicorn[standard]' torchcodec 2>/dev/null || true
 conda install -c conda-forge ffmpeg -y -q 2>/dev/null || true
 
 # Check HuggingFace login
