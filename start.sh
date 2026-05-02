@@ -18,7 +18,7 @@ set -e
 
 ENV_NAME="indicf5"
 PYTHON_VERSION="3.10"
-PORT=8000
+PORT=8001
 
 echo "========================================="
 echo "  Indic TTS API Setup & Start"
