@@ -1,0 +1,7 @@
+*.wav
+__pycache__
+*.pyc
+.git
+run_indicf5.py
+run_multilang.py
+*_sample.wav

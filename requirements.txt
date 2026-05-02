@@ -1,0 +1,10 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic>=2.0
+numpy==1.26.4
+soundfile==0.13.1
+pydub==0.25.1
+transformers>=4.40
+huggingface_hub>=0.23
+safetensors>=0.4
+f5-tts @ git+https://github.com/ai4bharat/IndicF5.git
