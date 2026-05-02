@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# ==========================================
+# LAUNCHD ENVIRONMENT FIXES
+# ==========================================
+# 1. Explicitly set PATH so the daemon can find conda
+export PATH="/Users/vishal/miniconda3/bin:/Users/vishal/anaconda3/bin:/opt/homebrew/bin:/opt/homebrew/Caskroom/miniforge/base/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# 2. Explicitly set HOME so HuggingFace can find your login token
+export HOME="/Users/vishal"
+
+# 3. Change into the correct directory so Uvicorn can find 'app/main.py'
+cd /Users/vishal/indicf5-tts || exit 1
+
+# ==========================================
+
 set -e
 
 ENV_NAME="indicf5"
@@ -12,8 +27,8 @@ echo "========================================="
 
 # Check if conda is available
 if ! command -v conda &> /dev/null; then
-    echo "ERROR: conda is not installed."
-    echo "Install Miniconda from: https://docs.anaconda.com/miniconda/"
+    echo "ERROR: conda is not installed or not in PATH."
+    echo "Current PATH is: $PATH"
     exit 1
 fi
 
@@ -63,7 +78,7 @@ except Exception:
 echo ""
 echo "[4/4] Downloading model weights (first run only)..."
 python -c "
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import hf_hub_download
 import sys
 
 files = [
@@ -83,7 +98,7 @@ for repo, fname in files:
             print(f'       → Request access at: https://huggingface.co/{repo}')
             sys.exit(1)
 
-# Download Parler model
+# Verify Parler model access
 try:
     hf_hub_download('ai4bharat/indic-parler-tts', 'config.json')
     print('       ✓ ai4bharat/indic-parler-tts (config verified)')
