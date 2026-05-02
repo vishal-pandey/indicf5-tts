@@ -6,7 +6,8 @@ PYTHON_VERSION="3.10"
 PORT=8000
 
 echo "========================================="
-echo "  IndicF5 TTS API Setup & Start"
+echo "  Indic TTS API Setup & Start"
+echo "  Engines: IndicF5 + Indic Parler TTS"
 echo "========================================="
 
 # Check if conda is available
@@ -37,6 +38,7 @@ echo "       Activated: $(python --version)"
 echo ""
 echo "[2/4] Installing dependencies..."
 pip install -q git+https://github.com/ai4bharat/IndicF5.git
+pip install -q git+https://github.com/huggingface/parler-tts.git
 pip install -q fastapi 'uvicorn[standard]' torchcodec
 conda install -c conda-forge ffmpeg -y -q 2>/dev/null || true
 
@@ -51,7 +53,9 @@ try:
 except Exception:
     print('       ERROR: Not logged in to HuggingFace.')
     print('       Run: huggingface-cli login')
-    print('       Then request access at: https://huggingface.co/ai4bharat/IndicF5')
+    print('       Then request access at:')
+    print('         https://huggingface.co/ai4bharat/IndicF5')
+    print('         https://huggingface.co/ai4bharat/indic-parler-tts')
     exit(1)
 "
 
@@ -59,7 +63,7 @@ except Exception:
 echo ""
 echo "[4/4] Downloading model weights (first run only)..."
 python -c "
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, snapshot_download
 import sys
 
 files = [
@@ -76,8 +80,18 @@ for repo, fname in files:
     except Exception as e:
         print(f'       ✗ {repo}/{fname} — {e}')
         if 'gated' in str(e).lower() or '403' in str(e):
-            print('       → Request access at: https://huggingface.co/ai4bharat/IndicF5')
+            print(f'       → Request access at: https://huggingface.co/{repo}')
             sys.exit(1)
+
+# Download Parler model
+try:
+    hf_hub_download('ai4bharat/indic-parler-tts', 'config.json')
+    print('       ✓ ai4bharat/indic-parler-tts (config verified)')
+except Exception as e:
+    print(f'       ✗ ai4bharat/indic-parler-tts — {e}')
+    if 'gated' in str(e).lower() or '403' in str(e):
+        print('       → Request access at: https://huggingface.co/ai4bharat/indic-parler-tts')
+        sys.exit(1)
 "
 
 echo ""

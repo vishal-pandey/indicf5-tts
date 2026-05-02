@@ -1,134 +1,149 @@
 """
-IndicF5 TTS API
+IndicF5 + Indic Parler TTS API
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from app.model import IndicF5TTS, SUPPORTED_LANGUAGES
+from enum import Enum
+from app.model import (
+    IndicF5TTS, ParlerTTS, select_device, wav_to_ogg_opus,
+    INDICF5_LANGUAGES, PARLER_LANGUAGES,
+)
 
 DESCRIPTION = """
-## IndicF5 Text-to-Speech API
+## Indic TTS API
 
-Generate natural-sounding speech in **11 Indian languages** using the IndicF5 model.
+Generate speech in Indian languages using two engines:
 
-### Supported Languages
+### Engines
 
-Assamese, Bengali, Gujarati, Hindi, Kannada, Malayalam, Marathi, Odia, Punjabi, Tamil, Telugu
+| Engine | Languages | Speed (Mac MPS) | Features |
+|--------|-----------|-----------------|----------|
+| **indicf5** | 11 languages | ~1.5x RTF (fast) | Reference-audio cloning |
+| **parler** | 21 languages | ~6-10x RTF (slower) | Named speakers, emotions, style control |
 
----
+### Output Format
 
-### Performance Tuning Guide
-
-The two key parameters that control speed vs quality are **`nfe_step`** and **`cfg_strength`**.
-
-#### `nfe_step` — Number of diffusion steps
-
-Controls how many iterations the ODE solver takes to generate the mel spectrogram.
-More steps = better quality but slower.
-
-| Value | Speed | Quality | Use Case |
-|-------|-------|---------|----------|
-| 8 | Fastest | Lower — may sound slightly robotic | Quick previews, testing |
-| **16** | **Fast (recommended)** | **Good — natural sounding** | **Production default** |
-| 32 | Slow | Best — subtle improvements over 16 | High-quality final renders |
-| 64 | Very slow | Diminishing returns | Not recommended |
-
-#### `cfg_strength` — Classifier-Free Guidance
-
-Controls how strongly the model follows the text conditioning.
-Higher values = more faithful to text but **doubles compute** (runs the model twice per step).
-
-| Value | Speed | Quality | Use Case |
-|-------|-------|---------|----------|
-| **0.0** | **Fastest (recommended)** | **Good — natural prosody** | **Production default** |
-| 1.0 | 2x slower | Slightly more expressive | When 0.0 sounds flat |
-| 2.0 | 2x slower | Original default, most guided | Maximum text adherence |
-| 3.0+ | 2x slower | Over-guided, can sound unnatural | Not recommended |
-
-#### `speed` — Speech rate
-
-Simple multiplier on the output duration. Does not affect generation time significantly.
-
-| Value | Effect |
-|-------|--------|
-| 0.5 | Half speed (slow, stretched) |
-| **1.0** | **Normal speed** |
-| 1.5 | Faster speech |
-| 2.0 | Double speed (compressed) |
+Returns **OGG/Opus** audio by default (WhatsApp compatible).
+Set `format=wav` to get WAV instead.
 
 ---
 
-### Recommended Presets
+### IndicF5 Parameters
 
-| Preset | nfe_step | cfg_strength | RTF* | Notes |
-|--------|----------|--------------|------|-------|
-| ⚡ Fastest | 8 | 0.0 | ~0.7x | Quick drafts |
-| 🎯 Balanced (default) | 16 | 0.0 | ~1.5x | Best speed/quality tradeoff |
-| 🎵 High Quality | 32 | 1.0 | ~6x | Final production audio |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `nfe_step` | 16 | Diffusion steps (8=fastest, 16=balanced, 32=best) |
+| `cfg_strength` | 0.0 | Guidance strength (0=fastest, >0 doubles compute) |
+| `speed` | 1.0 | Speech rate (0.5–2.0) |
 
-*RTF = Real-Time Factor (seconds to generate 1 second of audio). Lower is faster.
-Measured on Mac Mini M4 with 24GB unified memory using MPS.
+### Parler Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `speaker` | Divya | Named speaker (e.g. Rohit, Divya, Arjun, Aditi) |
+| `description` | auto | Full voice description (overrides speaker) |
+
+### Parler Speakers by Language
+
+| Language | Recommended |
+|----------|-------------|
+| Hindi | Rohit, Divya, Aman, Rani |
+| Bengali | Arjun, Aditi |
+| Tamil | Jaya, Kavitha |
+| Telugu | Prakash, Lalitha |
+| Marathi | Sanjay, Sunita |
+| Kannada | Suresh, Anu |
+| Malayalam | Anjali, Harish |
+| Gujarati | Yash, Neha |
+| English | Thoma, Mary |
+
+See full list at the model page.
 
 ---
 
 ### Example Requests
 
-**Fast generation (default):**
+**IndicF5 (fast, Hindi):**
 ```json
-{"text": "नमस्ते, आप कैसे हैं?"}
+{"text": "नमस्ते, आप कैसे हैं?", "engine": "indicf5"}
 ```
 
-**High quality:**
+**Parler (with speaker):**
 ```json
-{"text": "नमस्ते, आप कैसे हैं?", "nfe_step": 32, "cfg_strength": 1.0}
+{"text": "नमस्ते, आप कैसे हैं?", "engine": "parler", "speaker": "Rohit"}
 ```
 
-**Tamil:**
+**Parler (with full description):**
 ```json
-{"text": "வணக்கம்! நீங்கள் எப்படி இருக்கிறீர்கள்?"}
+{
+  "text": "Hello, how are you?",
+  "engine": "parler",
+  "description": "Thoma speaks with a clear British accent at a moderate pace. Very high quality recording."
+}
 ```
 """
 
 app = FastAPI(
-    title="IndicF5 TTS API",
+    title="Indic TTS API",
     description=DESCRIPTION,
-    version="1.0.0",
+    version="2.0.0",
 )
 
-# Load model at startup
-tts: IndicF5TTS | None = None
+indicf5: IndicF5TTS | None = None
+parler: ParlerTTS | None = None
 
 
 @app.on_event("startup")
-async def load_model():
-    global tts
-    tts = IndicF5TTS()
+async def load_models():
+    global indicf5, parler
+    device = select_device()
+    print(f"Device: {device}")
+
+    print("Loading IndicF5...")
+    indicf5 = IndicF5TTS(device)
+
+    print("Loading Indic Parler TTS...")
+    parler = ParlerTTS(device)
+
+    print("All models ready.")
+
+
+class EngineEnum(str, Enum):
+    indicf5 = "indicf5"
+    parler = "parler"
+
+
+class AudioFormat(str, Enum):
+    ogg = "ogg"
+    wav = "wav"
 
 
 class TTSRequest(BaseModel):
     text: str = Field(
-        ...,
-        min_length=1,
-        max_length=2000,
-        description="Text to synthesize. Supports Hindi, Tamil, Bengali, Telugu, Marathi, Gujarati, Kannada, Malayalam, Odia, Punjabi, and Assamese.",
+        ..., min_length=1, max_length=2000,
+        description="Text to synthesize in any supported Indian language.",
     )
-    speed: float = Field(
-        1.0,
-        ge=0.5,
-        le=2.0,
-        description="Speech speed multiplier. 1.0 = normal, 0.5 = slow, 2.0 = fast.",
+    engine: EngineEnum = Field(
+        EngineEnum.indicf5,
+        description="TTS engine: 'indicf5' (fast) or 'parler' (more features).",
     )
-    nfe_step: int = Field(
-        16,
-        ge=4,
-        le=64,
-        description="Number of ODE solver steps. Fewer = faster. 16 is the sweet spot for speed+quality. 32 for best quality.",
+    format: AudioFormat = Field(
+        AudioFormat.ogg,
+        description="Output format: 'ogg' (WhatsApp/Opus) or 'wav'.",
     )
-    cfg_strength: float = Field(
-        0.0,
-        ge=0.0,
-        le=5.0,
-        description="Classifier-Free Guidance strength. 0 = fastest (no guidance, still good quality). Values > 0 double the compute. Use 1.0-2.0 for more expressive output.",
+    # IndicF5 params
+    speed: float = Field(1.0, ge=0.5, le=2.0, description="Speech speed (IndicF5 only).")
+    nfe_step: int = Field(16, ge=4, le=64, description="Diffusion steps (IndicF5 only).")
+    cfg_strength: float = Field(0.0, ge=0.0, le=5.0, description="CFG strength (IndicF5 only).")
+    # Parler params
+    speaker: str | None = Field(
+        None,
+        description="Named speaker for Parler (e.g. Rohit, Divya, Arjun). Ignored by IndicF5.",
+    )
+    description: str | None = Field(
+        None,
+        description="Full voice description for Parler. Overrides speaker. Ignored by IndicF5.",
     )
 
     model_config = {
@@ -136,10 +151,15 @@ class TTSRequest(BaseModel):
             "examples": [
                 {
                     "text": "नमस्ते! आप कैसे हैं?",
-                    "speed": 1.0,
-                    "nfe_step": 16,
-                    "cfg_strength": 0.0,
-                }
+                    "engine": "indicf5",
+                    "format": "ogg",
+                },
+                {
+                    "text": "नमस्ते! आप कैसे हैं?",
+                    "engine": "parler",
+                    "speaker": "Divya",
+                    "format": "ogg",
+                },
             ]
         }
     }
@@ -149,33 +169,59 @@ class TTSRequest(BaseModel):
     "/synthesize",
     response_class=Response,
     summary="Generate speech from text",
-    description="Converts text to speech and returns a WAV audio file (24kHz, mono, float32). "
-    "Adjust nfe_step and cfg_strength to trade off speed vs quality.",
+    description="Returns audio in OGG/Opus (WhatsApp compatible) or WAV format.",
     responses={
-        200: {"content": {"audio/wav": {}}, "description": "Generated WAV audio (24kHz mono)"},
-        503: {"description": "Model is still loading"},
+        200: {
+            "content": {
+                "audio/ogg": {},
+                "audio/wav": {},
+            },
+            "description": "Generated audio",
+        },
+        503: {"description": "Models still loading"},
     },
 )
 async def synthesize(req: TTSRequest):
-    """Generate speech from text. Returns a WAV audio file."""
-    if tts is None:
-        raise HTTPException(status_code=503, detail="Model is still loading")
+    if indicf5 is None or parler is None:
+        raise HTTPException(status_code=503, detail="Models are still loading")
+
     try:
-        wav_bytes = tts.synthesize(
-            req.text, speed=req.speed, nfe_step=req.nfe_step, cfg_strength=req.cfg_strength
-        )
+        if req.engine == EngineEnum.indicf5:
+            wav_bytes = indicf5.synthesize(
+                req.text, speed=req.speed,
+                nfe_step=req.nfe_step, cfg_strength=req.cfg_strength,
+            )
+        else:
+            wav_bytes = parler.synthesize(
+                req.text, description=req.description, speaker=req.speaker,
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return Response(content=wav_bytes, media_type="audio/wav")
+
+    if req.format == AudioFormat.ogg:
+        audio_bytes = wav_to_ogg_opus(wav_bytes)
+        media_type = "audio/ogg"
+    else:
+        audio_bytes = wav_bytes
+        media_type = "audio/wav"
+
+    return Response(content=audio_bytes, media_type=media_type)
 
 
 @app.get("/health", summary="Health check")
 async def health():
-    """Check if the API and model are ready."""
-    return {"status": "ready" if tts is not None else "loading"}
+    return {
+        "status": "ready" if (indicf5 and parler) else "loading",
+        "engines": {
+            "indicf5": indicf5 is not None,
+            "parler": parler is not None,
+        },
+    }
 
 
-@app.get("/languages", summary="List supported languages")
+@app.get("/languages", summary="List supported languages per engine")
 async def languages():
-    """Returns the list of supported languages."""
-    return {"languages": SUPPORTED_LANGUAGES}
+    return {
+        "indicf5": INDICF5_LANGUAGES,
+        "parler": PARLER_LANGUAGES,
+    }
