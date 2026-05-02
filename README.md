@@ -192,3 +192,4 @@ Key optimizations for Apple Silicon:
 - [AI4Bharat](https://github.com/AI4Bharat/IndicF5) for the IndicF5 model
 - [F5-TTS](https://github.com/SWivid/F5-TTS) for the base architecture
 - [Vocos](https://github.com/gemelo-ai/vocos) for the vocoder
+- Vishal Pandey
