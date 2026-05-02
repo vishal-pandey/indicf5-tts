@@ -173,7 +173,6 @@ class ParlerTTS:
             input_ids=desc_ids.input_ids,
             attention_mask=desc_ids.attention_mask,
             prompt_input_ids=prompt_ids.input_ids,
-            prompt_attention_mask=prompt_ids.attention_mask,
         )
         audio = generation.cpu().numpy().squeeze()
         return _postprocess_audio(audio, self.sample_rate)
